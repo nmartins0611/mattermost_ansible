@@ -1,0 +1,203 @@
+---
+- name: Deploy Mattermost with Podman on RHEL 9
+  hosts: mattermost_servers
+  become: true
+  vars:
+    mattermost_version: latest
+    mattermost_data_dir: /opt/mattermost/data
+    mattermost_config_dir: /opt/mattermost/config
+    mattermost_logs_dir: /opt/mattermost/logs
+    mattermost_plugins_dir: /opt/mattermost/plugins
+    mattermost_client_plugins_dir: /opt/mattermost/client/plugins
+    mattermost_bleve_indexes_dir: /opt/mattermost/bleve-indexes
+    postgres_db: mattermost
+    postgres_user: mmuser
+    postgres_password: mmuser_password
+    postgres_data_dir: /opt/mattermost/postgres
+    mm_admin_username: mmadmin
+    mm_admin_password: mmadmin_password
+    mm_admin_email: admin@example.com
+    mm_team_name: primary
+    mm_channel_name: ansible
+    mm_site_url: http://localhost:8065
+    container_network: mattermost_network
+
+  tasks:
+    - name: Install Podman and dependencies
+      dnf:
+        name:
+          - podman
+          - python3-pip
+          - python3-podman
+        state: present
+        update_cache: yes
+
+    - name: Create SELinux directory context for container volumes
+      sefcontext:
+        target: "{{ item }}(/.*)?"
+        setype: container_file_t
+        state: present
+      with_items:
+        - "{{ mattermost_data_dir }}"
+        - "{{ mattermost_config_dir }}"
+        - "{{ mattermost_logs_dir }}"
+        - "{{ mattermost_plugins_dir }}"
+        - "{{ mattermost_client_plugins_dir }}"
+        - "{{ mattermost_bleve_indexes_dir }}"
+        - "{{ postgres_data_dir }}"
+      register: sefcontext_result
+
+    - name: Create Mattermost parent directory
+      file:
+        path: /opt/mattermost
+        state: directory
+        mode: '0755'
+
+    - name: Run restorecon after changing SELinux context
+      command: restorecon -Rv /opt/mattermost
+      when: sefcontext_result.changed
+
+    - name: Create Mattermost directories
+      file:
+        path: "{{ item }}"
+        state: directory
+        owner: 2000
+        group: 2000
+        mode: '0755'
+      with_items:
+        - "{{ mattermost_data_dir }}"
+        - "{{ mattermost_config_dir }}"
+        - "{{ mattermost_logs_dir }}"
+        - "{{ mattermost_plugins_dir }}"
+        - "{{ mattermost_client_plugins_dir }}"
+        - "{{ mattermost_bleve_indexes_dir }}"
+        - "{{ postgres_data_dir }}"
+
+    - name: Create Podman network
+      command: podman network create {{ container_network }}
+      register: network_result
+      failed_when: 
+        - network_result.rc != 0 
+        - "'already exists' not in network_result.stderr"
+      changed_when: network_result.rc == 0
+
+    - name: Deploy PostgreSQL container
+      containers.podman.podman_container:
+        name: mattermost-postgres
+        image: postgres:13
+        restart_policy: always
+        network: "{{ container_network }}"
+        env:
+          POSTGRES_USER: "{{ postgres_user }}"
+          POSTGRES_PASSWORD: "{{ postgres_password }}"
+          POSTGRES_DB: "{{ postgres_db }}"
+        volume:
+          - "{{ postgres_data_dir }}:/var/lib/postgresql/data:Z"
+        state: started
+
+    - name: Wait for PostgreSQL to be ready
+      pause:
+        seconds: 30
+
+    - name: Deploy Mattermost container
+      containers.podman.podman_container:
+        name: mattermost
+        image: mattermost/mattermost-team-edition:{{ mattermost_version }}
+        restart_policy: always
+        network: "{{ container_network }}"
+        ports:
+          - "8065:8065"
+        env:
+          MM_USERNAME: "{{ postgres_user }}"
+          MM_PASSWORD: "{{ postgres_password }}"
+          MM_DBNAME: "{{ postgres_db }}"
+          MM_SQLSETTINGS_DATASOURCE: "postgres://{{ postgres_user }}:{{ postgres_password }}@mattermost-postgres:5432/{{ postgres_db }}?sslmode=disable&connect_timeout=10"
+          MM_SERVICESETTINGS_SITEURL: "{{ mm_site_url }}"
+        volume:
+          - "{{ mattermost_config_dir }}:/mattermost/config:Z"
+          - "{{ mattermost_data_dir }}:/mattermost/data:Z"
+          - "{{ mattermost_logs_dir }}:/mattermost/logs:Z"
+          - "{{ mattermost_plugins_dir }}:/mattermost/plugins:Z"
+          - "{{ mattermost_client_plugins_dir }}:/mattermost/client/plugins:Z"
+          - "{{ mattermost_bleve_indexes_dir }}:/mattermost/bleve-indexes:Z"
+        state: started
+
+    - name: Wait for Mattermost to be ready
+      pause:
+        seconds: 60
+
+    - name: Configure firewalld for Mattermost
+      firewalld:
+        port: 8065/tcp
+        permanent: yes
+        state: enabled
+        immediate: yes
+
+    - name: Create admin user and team
+      shell: |
+        podman exec mattermost mattermost user create --email {{ mm_admin_email }} --username {{ mm_admin_username }} --password {{ mm_admin_password }} --system_admin
+        podman exec mattermost mattermost team create --name {{ mm_team_name }} --display_name "Primary Team" --email {{ mm_admin_email }}
+        podman exec mattermost mattermost team add {{ mm_team_name }} {{ mm_admin_username }}
+      register: admin_user_result
+      failed_when: admin_user_result.rc != 0 and 'account with that username already exists' not in admin_user_result.stderr
+
+    - name: Create default ansible channel
+      shell: |
+        podman exec mattermost mattermost channel create --team {{ mm_team_name }} --name {{ mm_channel_name }} --display_name "Ansible Channel"
+      register: channel_result
+      failed_when: channel_result.rc != 0 and 'channel with that name already exists' not in channel_result.stderr
+
+    - name: Set admin user as channel admin
+      shell: |
+        podman exec mattermost mattermost channel add {{ mm_team_name }}:{{ mm_channel_name }} {{ mm_admin_username }}
+      register: add_admin_result
+      failed_when: add_admin_result.rc != 0 and 'is already a member of channel' not in add_admin_result.stderr
+
+    - name: Generate systemd service files for containers
+      block:
+        - name: Generate systemd service file for PostgreSQL
+          command: podman generate systemd --name mattermost-postgres --new --files
+          register: postgres_systemd
+          changed_when: postgres_systemd.rc == 0
+
+        - name: Generate systemd service file for Mattermost
+          command: podman generate systemd --name mattermost --new --files
+          register: mattermost_systemd
+          changed_when: mattermost_systemd.rc == 0
+
+        - name: Move PostgreSQL systemd service file
+          copy:
+            src: "container-mattermost-postgres.service"
+            dest: "/etc/systemd/system/"
+            remote_src: yes
+          when: postgres_systemd.rc == 0
+
+        - name: Move Mattermost systemd service file
+          copy:
+            src: "container-mattermost.service"
+            dest: "/etc/systemd/system/"
+            remote_src: yes
+          when: mattermost_systemd.rc == 0
+
+        - name: Reload systemd
+          systemd:
+            daemon_reload: yes
+
+        - name: Enable and start systemd services
+          systemd:
+            name: "{{ item }}"
+            enabled: yes
+            state: started
+          with_items:
+            - container-mattermost-postgres.service
+            - container-mattermost.service
+
+    - name: Display Mattermost info
+      debug:
+        msg: |
+          Mattermost has been deployed!
+          Access the web interface at: {{ mm_site_url }}
+          Admin username: {{ mm_admin_username }}
+          Admin password: {{ mm_admin_password }}
+          Default team: {{ mm_team_name }}
+          Default channel: {{ mm_channel_name }}
