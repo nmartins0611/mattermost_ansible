@@ -1,5 +1,5 @@
 ---
-- name: Deploy Mattermost with Podman on RHEL 9
+- name: Deploy Mattermost
   hosts: localhost
   become: true
   vars:
