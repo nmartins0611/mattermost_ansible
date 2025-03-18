@@ -24,6 +24,7 @@
     github_repo: github.com/nmartins0611/mattermost_ansible.git
     backup_file: 3qxi3zh3h3rebrpunkg6949mqh_export.zip
     local_backup_path: /tmp/backup.zip
+    config_file: config.json
 
   tasks:
 
@@ -97,6 +98,12 @@
         dest: "{{ local_backup_path }}"
         remote_src: yes
       register: backup_copied
+
+    - name: Copy config
+      copy:
+        src: "/tmp/mattermost_backup/{{ config_file }}"
+        dest: "{{ mattermost_config_dir }}"
+        remote_src: yes
 
     - name: Create Podman network
       command: podman network create {{ container_network }}
