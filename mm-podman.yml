@@ -35,6 +35,7 @@
           - python3-podman
           - git
           - unzip
+          - python3-dnf
         state: present
         update_cache: true
 
