@@ -197,9 +197,13 @@
           command: "mmctl --local channel search town-square"
          register: channel_output
 
-        - name: Extract Channel ID
-          set_fact:
-           channel_id: "{{ channel_output.stdout_lines | select('search', 'Channel ID') | map('regex_replace', '^.*Channel ID :', '') | first }}"
+       - name: get output
+         debug:
+          msg: {{ channel_output }}
+
+        # - name: Extract Channel ID
+        #   set_fact:
+        #    channel_id: "{{ channel_output.stdout_lines | select('search', 'Channel ID') | map('regex_replace', '^.*Channel ID :', '') | first }}"
 
         - name: Create Webhook
           containers.podman.podman_container_exec:
