@@ -152,7 +152,7 @@
       pause:
         seconds: 60    
         
-      - name: Copy backup file into Mattermost container
+    - name: Copy backup file into Mattermost container
       command: >
         podman cp {{ local_backup_path }} mattermost:/tmp/backup.zip
 
