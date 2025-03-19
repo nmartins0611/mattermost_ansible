@@ -1,3 +1,5 @@
-containers.podman
-community.general
-ansible.posix
+---
+collections:
+  - name: containers.podman
+  - name: community.general
+  - name: ansible.posix
