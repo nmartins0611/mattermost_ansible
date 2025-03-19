@@ -2,8 +2,8 @@
 - name: Deploy Mattermost
   hosts: localhost
   become: true
+  
   vars:
-    mattermost_version: latest
     mattermost_data_dir: /opt/mattermost/data
     mattermost_config_dir: /opt/mattermost/config
     mattermost_logs_dir: /opt/mattermost/logs
@@ -14,17 +14,11 @@
     postgres_user: mmadmin
     postgres_password: mmansible
     postgres_data_dir: /opt/mattermost/postgres
-    mm_admin_username: admin
-    mm_admin_password: ansible123!
-    mm_admin_email: admin@example.com
-    mm_team_name: primary
-    mm_channel_name: ansible
     mm_site_url: http://localhost:8065
     container_network: mattermost_network
     github_repo: github.com/nmartins0611/mattermost_ansible.git
-    backup_file: 3qxi3zh3h3rebrpunkg6949mqh_export.zip
+    backup_file: gjyd3bpjn3895dey1wb7tsyi7o_export.zip
     local_backup_path: /tmp/backup.zip
-    config_file: config.json
 
   tasks:
 
@@ -99,12 +93,6 @@
         remote_src: yes
       register: backup_copied
 
-    - name: Copy config
-      copy:
-        src: "/tmp/mattermost_backup/{{ config_file }}"
-        dest: "{{ mattermost_config_dir }}"
-        remote_src: yes
-
     - name: Create Podman network
       command: podman network create {{ container_network }}
       register: network_result
@@ -134,24 +122,25 @@
     - name: Deploy Mattermost container
       containers.podman.podman_container:
         name: mattermost
-        image: mattermost/mattermost-team-edition:{{ mattermost_version }}
+        image:  docker.io/mattermost/mattermost-team-edition:latest
         restart_policy: always
         network: "{{ container_network }}"
         ports:
           - "8065:8065"
         env:
+          MM_SERVICESETTINGS_ENABLELOCALMODE: true
           MM_USERNAME: "{{ postgres_user }}"
           MM_PASSWORD: "{{ postgres_password }}"
           MM_DBNAME: "{{ postgres_db }}"
           MM_SQLSETTINGS_DATASOURCE: "postgres://{{ postgres_user }}:{{ postgres_password }}@mattermost-postgres:5432/{{ postgres_db }}?sslmode=disable&connect_timeout=10"
           MM_SERVICESETTINGS_SITEURL: "{{ mm_site_url }}"
         volume:
-          - "{{ mattermost_config_dir }}:/mattermost/config:Z"
-          - "{{ mattermost_data_dir }}:/mattermost/data:Z"
-          - "{{ mattermost_logs_dir }}:/mattermost/logs:Z"
-          - "{{ mattermost_plugins_dir }}:/mattermost/plugins:Z"
-          - "{{ mattermost_client_plugins_dir }}:/mattermost/client/plugins:Z"
-          - "{{ mattermost_bleve_indexes_dir }}:/mattermost/bleve-indexes:Z"
+          - "{{ mattermost_config_dir }}:/mattermost/config:z"
+          - "{{ mattermost_data_dir }}:/mattermost/data:z"
+          - "{{ mattermost_logs_dir }}:/mattermost/logs:z"
+          - "{{ mattermost_plugins_dir }}:/mattermost/plugins:z"
+          - "{{ mattermost_client_plugins_dir }}:/mattermost/client/plugins:z"
+          - "{{ mattermost_bleve_indexes_dir }}:/mattermost/bleve-indexes:z"
         state: started
 
     - name: Wait for Mattermost to be ready
@@ -161,24 +150,34 @@
     - name: Copy backup file into Mattermost container
       command: >
         podman cp {{ local_backup_path }} mattermost:/tmp/backup.zip
-      when: backup_copied.changed
 
-    # - name: Import Mattermost backup
-    #   command: >
-    #     podman exec mmctl auth login http://localhost:8065 --name local-instance --username admin --password your-password && mmctl import upload /tmp/backup.zip
-    #   register: import_result
-    #   when: backup_copied.changed
+    - name: Create mattermost admin
+      command: >
+        podman exec mattermost mmctl --local user create --email admin@ansible.com --username admin --password "ansible123!" --system-admin
+      register: import_result
 
-    # - name: Check if firewalld is running
-    #   command: systemctl is-active firewalld
-    #   register: firewalld_status
-    #   failed_when: false
-    #   changed_when: false
+    - name: Import mattermost config
+      command: >
+        podman exec mattermost mmctl --local import process --bypass-upload /tmp/backup.zip
 
-    - name: Configure firewalld for Mattermost
-      firewalld:
-        port: 8065/tcp
-        permanent: yes
-        state: enabled
-        immediate: yes
-      when: firewalld_status.stdout == "active"
+    - name: Create mattermost admin
+      command: >
+        podman exec mattermost mmctl --local user create --email ansibleadmin@ansible.com --username ansibleadmin --password "ansible123!" --system-admin
+      register: import_result
+
+    - name: Add admin to team
+      command: >
+        podman exec mattermost mmctl --local team add automators ansibleadmin@ansible.com
+
+    # - name: Get Mattermost Channel ID
+    #   command: 
+    #     podman exec mattermost mmctl --local channel search "town-square"
+    #   register: channel_output
+
+    # - name: Extract Channel ID
+    #   set_fact:
+    #    channel_id: "{{ channel_output.stdout_lines | select('search', 'Channel ID') | map('regex_replace', '^.*Channel ID :', '') | first }}"
+
+    # - name: Display Channel ID
+    #   debug:
+    #    msg: "The Channel ID is {{ channel_id }}"
