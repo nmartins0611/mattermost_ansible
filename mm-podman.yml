@@ -215,43 +215,46 @@
           debug:
            msg: "{{ webhook_list }}"
 
-    - name: Generate systemd service files for containers
+   - name: Create systemd service files for Docker containers
       block:
-        - name: Generate systemd service file for PostgreSQL
-          command: podman generate systemd --name mattermost-postgres --new --files
-          register: postgres_systemd
-          changed_when: postgres_systemd.rc == 0
+        - name: Create systemd service directory
+          file:
+            path: /etc/systemd/system
+            state: directory
+            mode: '0755'
 
-        - name: Generate systemd service file for Mattermost
-          command: podman generate systemd --name mattermost --new --files
-          register: mattermost_systemd
-          changed_when: mattermost_systemd.rc == 0
+        - name: Create systemd service for PostgreSQL container
+          template:
+            src: templates/docker-container.service.j2
+            dest: /etc/systemd/system/docker-mattermost-postgres.service
+            mode: '0644'
+          vars:
+            container_name: mattermost-postgres
+          register: postgres_service
 
-        - name: Move PostgreSQL systemd service file
-          copy:
-            src: "container-mattermost-postgres.service"
-            dest: "/etc/systemd/system/"
-            remote_src: yes
-          when: postgres_systemd.rc == 0
+        - name: Create systemd service for Mattermost container
+          template:
+            src: templates/docker-container.service.j2
+            dest: /etc/systemd/system/docker-mattermost.service
+            mode: '0644'
+          vars:
+            container_name: mattermost
+          register: mattermost_service
 
-        - name: Move Mattermost systemd service file
-          copy:
-            src: "container-mattermost.service"
-            dest: "/etc/systemd/system/"
-            remote_src: yes
-          when: mattermost_systemd.rc == 0
-
-        - name: Reload systemd
+        - name: Reload systemd if services changed
           systemd:
             daemon_reload: yes
+          when: postgres_service.changed or mattermost_service.changed
 
-        - name: Enable and start systemd services
+        - name: Enable systemd services
           systemd:
             name: "{{ item }}"
             enabled: yes
             state: started
           with_items:
-            - container-mattermost-postgres.service
-            - container-mattermost.service
-
+            - docker-mattermost-postgres.service
+            - docker-mattermost.service
+      vars:
+        systemd_dir: /etc/systemd/system
+      ignore_errors: yes
            
