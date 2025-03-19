@@ -152,16 +152,7 @@
       pause:
         seconds: 60    
         
-    - name: Configure firewalld for Mattermost
-      firewalld:
-        port: 8065/tcp
-        permanent: yes
-        state: enabled
-        immediate: yes 
-      when: "'running' in ansible_facts.services['firewalld'].state"
-      
-
-    - name: Copy backup file into Mattermost container
+      - name: Copy backup file into Mattermost container
       command: >
         podman cp {{ local_backup_path }} mattermost:/tmp/backup.zip
 
@@ -214,47 +205,3 @@
         - name: Show webhook detais
           debug:
            msg: "{{ webhook_list }}"
-
-   - name: Create systemd service files for Docker containers
-      block:
-        - name: Create systemd service directory
-          file:
-            path: /etc/systemd/system
-            state: directory
-            mode: '0755'
-
-        - name: Create systemd service for PostgreSQL container
-          template:
-            src: templates/docker-container.service.j2
-            dest: /etc/systemd/system/docker-mattermost-postgres.service
-            mode: '0644'
-          vars:
-            container_name: mattermost-postgres
-          register: postgres_service
-
-        - name: Create systemd service for Mattermost container
-          template:
-            src: templates/docker-container.service.j2
-            dest: /etc/systemd/system/docker-mattermost.service
-            mode: '0644'
-          vars:
-            container_name: mattermost
-          register: mattermost_service
-
-        - name: Reload systemd if services changed
-          systemd:
-            daemon_reload: yes
-          when: postgres_service.changed or mattermost_service.changed
-
-        - name: Enable systemd services
-          systemd:
-            name: "{{ item }}"
-            enabled: yes
-            state: started
-          with_items:
-            - docker-mattermost-postgres.service
-            - docker-mattermost.service
-      vars:
-        systemd_dir: /etc/systemd/system
-      ignore_errors: yes
-           
