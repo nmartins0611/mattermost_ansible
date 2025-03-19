@@ -28,7 +28,7 @@
   tasks:
 
     - name: Install Podman and dependencies
-      dnf:
+      ansible.builtin.dnf:
         name:
           - podman
           - python3-pip
@@ -36,10 +36,10 @@
           - git
           - unzip
         state: present
-        update_cache: yes
+        update_cache: true
 
     - name: Create SELinux directory context for container volumes
-      sefcontext:
+      community.general.sefcontext:
         target: "{{ item }}(/.*)?"
         setype: container_file_t
         state: present
@@ -54,17 +54,17 @@
       register: sefcontext_result
 
     - name: Create Mattermost parent directory
-      file:
+      ansible.builtin.file:
         path: /opt/mattermost
         state: directory
         mode: '0755'
 
     - name: Run restorecon after changing SELinux context
-      command: restorecon -Rv /opt/mattermost
+      ansible.builtin.command: restorecon -Rv /opt/mattermost
       when: sefcontext_result.changed
 
     - name: Create Mattermost directories
-      file:
+      ansible.builtin.file:
         path: "{{ item }}"
         state: directory
         owner: 2000
@@ -80,29 +80,29 @@
         - "{{ postgres_data_dir }}"
 
     - name: Create temporary directory for GitHub clone
-      file:
+      ansible.builtin.file:
         path: /tmp/mattermost_backup
         state: directory
         mode: '0755'
 
     - name: Clone GitHub repository to get backup file
-      git:
+      ansible.builtin.git:
         repo: "https://{{ github_repo }}"
         dest: /tmp/mattermost_backup
-        force: yes
+        force: true
 
     - name: Copy backup file to local path
-      copy:
+      ansible.builtin.copy:
         src: "/tmp/mattermost_backup/{{ backup_file }}"
         dest: "{{ local_backup_path }}"
-        remote_src: yes
+        remote_src: true
       register: backup_copied
 
     - name: Create Podman network
-      command: podman network create {{ container_network }}
+      ansible.builtin.command: podman network create {{ container_network }}
       register: network_result
-      failed_when: 
-        - network_result.rc != 0 
+      failed_when:
+        - network_result.rc != 0
         - "'already exists' not in network_result.stderr"
       changed_when: network_result.rc == 0
 
@@ -121,13 +121,13 @@
         state: started
 
     - name: Wait for PostgreSQL to be ready
-      pause:
+      ansible.builtin.pause:
         seconds: 30
 
     - name: Deploy Mattermost container
       containers.podman.podman_container:
         name: mattermost
-        image:  docker.io/mattermost/mattermost-team-edition:latest
+        image: docker.io/mattermost/mattermost-team-edition:latest
         restart_policy: always
         network: "{{ container_network }}"
         ports:
@@ -149,59 +149,60 @@
         state: started
 
     - name: Wait for Mattermost to be ready
-      pause:
-        seconds: 60    
-        
+      ansible.builtin.pause:
+        seconds: 60
+
     - name: Copy backup file into Mattermost container
-      command: >
+      ansible.builtin.command: >
         podman cp {{ local_backup_path }} mattermost:/tmp/backup.zip
 
     - name: Configure Mattermost after deployment
       block:
         - name: Create mattermost admin
-          command: >
+          ansible.builtin.command: >
             podman exec mattermost mmctl --local user create --email admin@ansible.com --username admin --password "ansible123!" --system-admin
           register: import_result
 
         - name: Import mattermost config
-          command: >
+          ansible.builtin.command: >
             podman exec mattermost mmctl --local import process --bypass-upload /tmp/backup.zip
 
         - name: Create mattermost admin
-          command: >
+          ansible.builtin.command: >
             podman exec mattermost mmctl --local user create --email ansibleadmin@ansible.com --username ansibleadmin --password "ansible123!" --system-admin
           register: import_result
 
         - name: Add admin to team
-          command: >
+          ansible.builtin.command: >
             podman exec mattermost mmctl --local team add automators ansibleadmin@ansible.com
 
         - name: Wait for Mattermost to be ready
-          pause:
+          ansible.builtin.pause:
             seconds: 30
 
         - name: List available channels
-          command: >
+          ansible.builtin.command: >
             podman exec mattermost mmctl --local channel list automators
 
         - name: Get Mattermost Channel ID
-          command: >
+          ansible.builtin.command: >
             podman exec -t mattermost mmctl --local channel search "town-square"
           register: channel_output
 
         - name: Extract Channel ID
-          set_fact:
+          ansible.builtin.set_fact:
            channel_id: "{{ channel_output.stdout_lines | select('search', 'Channel ID') | map('regex_replace', '^.*Channel ID :', '') | first }}"
 
         - name: Create Webhook
-          command: >
+          ansible.builtin.command: >
             podman exec mattermost mmctl --local webhook create-incoming --channel "{{ channel_id }}" --user admin --display-name Incoming Webhook  --lock-to-channel
 
         - name: List webhook
-          command: >
+          ansible.builtin.command: >
             podman exec mattermost mmctl --local webhook list
           register: webhook_list
 
         - name: Show webhook detais
-          debug:
-           msg: "{{ webhook_list }}"
+          ansible.builtin.debug:
+            msg: "{{ webhook_list }}"
+
