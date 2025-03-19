@@ -2,8 +2,8 @@
 - name: Deploy Mattermost
   hosts: localhost
   become: true
-  
   vars:
+    mattermost_version: latest
     mattermost_data_dir: /opt/mattermost/data
     mattermost_config_dir: /opt/mattermost/config
     mattermost_logs_dir: /opt/mattermost/logs
@@ -14,6 +14,11 @@
     postgres_user: mmadmin
     postgres_password: mmansible
     postgres_data_dir: /opt/mattermost/postgres
+    mm_admin_username: admin
+    mm_admin_password: ansible123!
+    mm_admin_email: admin@example.com
+    mm_team_name: primary
+    mm_channel_name: ansible
     mm_site_url: http://localhost:8065
     container_network: mattermost_network
     github_repo: github.com/nmartins0611/mattermost_ansible.git
@@ -169,17 +174,32 @@
       command: >
         podman exec mattermost mmctl --local team add automators ansibleadmin@ansible.com
 
-    #### Webhook config    
+    - name: Wait for Mattermost to be ready
+      pause:
+        seconds: 30
+
+    - name: List available channels
+      command: >
+        podman exec mattermost mmctl --local channel list automators
 
     - name: Get Mattermost Channel ID
       command: >
-        podman exec mattermost mmctl --local channel search "town-square"
+        podman exec -t mattermost mmctl --local channel search "town-square"
       register: channel_output
 
     - name: Extract Channel ID
       set_fact:
        channel_id: "{{ channel_output.stdout_lines | select('search', 'Channel ID') | map('regex_replace', '^.*Channel ID :', '') | first }}"
 
-    - name: Display Channel ID
+    - name: Create Webhook
+      command: >
+        podman exec mattermost mmctl --local webhook create-incoming --channel "{{ channel_id }}" --user admin --display-name Incoming Webhook  --lock-to-channel
+
+    - name: List webhook
+      command: >
+        podman exec mattermost mmctl --local webhook list
+      register: webhook_list
+
+    - name: Show webhook detais
       debug:
-       msg: "The Channel ID is {{ channel_id }}"
+       msg: "{{ webhook_list }}"
