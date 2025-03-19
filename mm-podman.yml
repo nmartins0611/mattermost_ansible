@@ -1,6 +1,6 @@
 ---
 - name: Deploy Mattermost
-  hosts: localhost
+  hosts: all
   become: true
   vars:
     mattermost_version: latest
