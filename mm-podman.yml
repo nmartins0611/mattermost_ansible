@@ -171,15 +171,15 @@
 
     #### Webhook config    
 
-    # - name: Get Mattermost Channel ID
-    #   command: 
-    #     podman exec mattermost mmctl --local channel search "town-square"
-    #   register: channel_output
+    - name: Get Mattermost Channel ID
+      command: >
+        podman exec mattermost mmctl --local channel search "town-square"
+      register: channel_output
 
-    # - name: Extract Channel ID
-    #   set_fact:
-    #    channel_id: "{{ channel_output.stdout_lines | select('search', 'Channel ID') | map('regex_replace', '^.*Channel ID :', '') | first }}"
+    - name: Extract Channel ID
+      set_fact:
+       channel_id: "{{ channel_output.stdout_lines | select('search', 'Channel ID') | map('regex_replace', '^.*Channel ID :', '') | first }}"
 
-    # - name: Display Channel ID
-    #   debug:
-    #    msg: "The Channel ID is {{ channel_id }}"
+    - name: Display Channel ID
+      debug:
+       msg: "The Channel ID is {{ channel_id }}"
