@@ -169,6 +169,8 @@
       command: >
         podman exec mattermost mmctl --local team add automators ansibleadmin@ansible.com
 
+    #### Webhook config    
+
     # - name: Get Mattermost Channel ID
     #   command: 
     #     podman exec mattermost mmctl --local channel search "town-square"
