@@ -153,53 +153,63 @@
         seconds: 60    
         
     - name: Copy backup file into Mattermost container
-      command: >
-        podman cp {{ local_backup_path }} mattermost:/tmp/backup.zip
+      containers.podman.podman_container_copy:
+       src:  {{ local_backup_path }}
+       dest: /tmp/backup.zip
+       container: mattermost
 
     - name: Configure Mattermost after deployment
       block:
-        - name: Create mattermost admin
-          command: >
-            podman exec mattermost mmctl --local user create --email admin@ansible.com --username admin --password "ansible123!" --system-admin
-          register: import_result
+       - name: Create mattermost admin
+         containers.podman.podman_container_exec:
+          name: mattermost
+          command: "mmctl --local user create --email admin@ansible.com --username admin --password ansible123! --system-admin"
+         register: import_result
 
-        - name: Import mattermost config
-          command: >
-            podman exec mattermost mmctl --local import process --bypass-upload /tmp/backup.zip
+       - name: Import mattermost config
+         containers.podman.podman_container_exec:
+          name: mattermost
+          command: "mmctl --local import process --bypass-upload /tmp/backup.zip"
 
-        - name: Create mattermost admin
-          command: >
-            podman exec mattermost mmctl --local user create --email ansibleadmin@ansible.com --username ansibleadmin --password "ansible123!" --system-admin
-          register: import_result
+       - name: Create mattermost admin
+         containers.podman.podman_container_exec:
+          name: mattermost
+          command: "mmctl --local user create --email ansibleadmin@ansible.com --username ansibleadmin --password ansible123! --system-admin"
+         register: import_result
 
-        - name: Add admin to team
-          command: >
-            podman exec mattermost mmctl --local team add automators ansibleadmin@ansible.com
+       - name: Add admin to team
+         containers.podman.podman_container_exec:
+          name: mattermost
+          command: "mmctl --local team add automators ansibleadmin@ansible.com"
 
         - name: Wait for Mattermost to be ready
           pause:
             seconds: 30
 
-        - name: List available channels
-          command: >
-            podman exec mattermost mmctl --local channel list automators
+       - name: Get Mattermost Channel ID
+         containers.podman.podman_container_exec:
+          name: mattermost 
+          command: "mmctl --local channel list automators"
 
-        - name: Get Mattermost Channel ID
-          command: >
-            podman exec -t mattermost mmctl --local channel search "town-square"
-          register: channel_output
+       - name: Get Mattermost Channel ID
+         containers.podman.podman_container_exec:
+          name: mattermost
+          command: "mmctl --local channel search town-square"
+         register: channel_output
 
         - name: Extract Channel ID
           set_fact:
            channel_id: "{{ channel_output.stdout_lines | select('search', 'Channel ID') | map('regex_replace', '^.*Channel ID :', '') | first }}"
 
         - name: Create Webhook
-          command: >
-            podman exec mattermost mmctl --local webhook create-incoming --channel "{{ channel_id }}" --user admin --display-name Incoming Webhook  --lock-to-channel
+          containers.podman.podman_container_exec:
+            name: mattermost 
+            command: "mmctl --local webhook create-incoming --channel {{ channel_id }} --user admin --display-name Incoming Webhook  --lock-to-channel"
 
         - name: List webhook
-          command: >
-            podman exec mattermost mmctl --local webhook list
+          containers.podman.podman_container_exec:
+            name: mattermost 
+            command: "mmctl --local webhook list"
           register: webhook_list
 
         - name: Show webhook detais
