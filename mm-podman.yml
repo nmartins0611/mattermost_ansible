@@ -15,6 +15,7 @@
     postgres_password: mmansible
     postgres_data_dir: /opt/mattermost/postgres
     container_network: mattermost_network
+    mm_site_url: http://localhost:8065
     github_repo: github.com/nmartins0611/mattermost_ansible.git
     backup_file: gjyd3bpjn3895dey1wb7tsyi7o_export.zip
     local_backup_path: /tmp/backup.zip
