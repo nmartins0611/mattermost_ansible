@@ -14,12 +14,6 @@
     postgres_user: mmadmin
     postgres_password: mmansible
     postgres_data_dir: /opt/mattermost/postgres
-    mm_admin_username: admin
-    mm_admin_password: ansible123!
-    mm_admin_email: admin@example.com
-    mm_team_name: primary
-    mm_channel_name: ansible
-    mm_site_url: http://localhost:8065
     container_network: mattermost_network
     github_repo: github.com/nmartins0611/mattermost_ansible.git
     backup_file: gjyd3bpjn3895dey1wb7tsyi7o_export.zip
@@ -153,7 +147,7 @@
         
     - name: Copy backup file into Mattermost container
       containers.podman.podman_container_copy:
-       src:  /tmp/backup.zip
+       src: "{{ local_backup_path }}"
        dest: /tmp/backup.zip
        container: mattermost
 
